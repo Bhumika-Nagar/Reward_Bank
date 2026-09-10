@@ -5,7 +5,9 @@ import {
   approveTask,
   createTask,
   markTaskDone,
+  undoTask,
 } from "../src/services/taskService";
+import { reportUsageSession } from "../src/services/usageService";
 
 describe("Task Service", () => {
   beforeEach(() => {
@@ -102,5 +104,154 @@ describe("Task Service", () => {
         reference_id: task.id,
       },
     ]);
+  });
+
+  it("does not approve the same task twice", () => {
+    const task = createTask({
+      childId: "child-1",
+      title: "Practice piano",
+      reward: 20,
+    });
+
+    markTaskDone(task.id);
+    approveTask(task.id);
+
+    expect(() => approveTask(task.id)).toThrow(
+      "Only a DONE task can be approved"
+    );
+
+    const child = db
+      .prepare("SELECT balance FROM children WHERE id = ?")
+      .get("child-1") as { balance: number };
+
+    expect(child.balance).toBe(20);
+
+    const ledgerCount = db
+      .prepare(
+        "SELECT COUNT(*) AS count FROM ledger_entries WHERE reference_id = ? AND reason = ?"
+      )
+      .get(task.id, "TASK_APPROVED") as { count: number };
+
+    expect(ledgerCount.count).toBe(1);
+  });
+
+  it("adds debt when an approval is undone after some minutes were spent", () => {
+    const firstTask = createTask({
+      childId: "child-1",
+      title: "Wash dishes",
+      reward: 30,
+    });
+
+    markTaskDone(firstTask.id);
+    approveTask(firstTask.id);
+
+    reportUsageSession({
+      id: "usage-after-approval",
+      childId: "child-1",
+      appId: "game",
+      startTime: "2026-09-10T13:00:00.000Z",
+      endTime: "2026-09-10T13:20:00.000Z",
+    });
+
+    undoTask(firstTask.id);
+
+    let child = db
+      .prepare("SELECT balance, debt FROM children WHERE id = ?")
+      .get("child-1") as { balance: number; debt: number };
+
+    expect(child.balance).toBe(0);
+    expect(child.debt).toBe(20);
+
+    const secondTask = createTask({
+      childId: "child-1",
+      title: "Fold laundry",
+      reward: 30,
+    });
+
+    markTaskDone(secondTask.id);
+    approveTask(secondTask.id);
+
+    child = db
+      .prepare("SELECT balance, debt FROM children WHERE id = ?")
+      .get("child-1") as { balance: number; debt: number };
+
+    expect(child.balance).toBe(10);
+    expect(child.debt).toBe(0);
+
+    const ledgerEntries = db
+      .prepare(
+        "SELECT amount, reason, reference_id FROM ledger_entries ORDER BY rowid"
+      )
+      .all();
+
+    expect(ledgerEntries).toEqual([
+      {
+        amount: 30,
+        reason: "TASK_APPROVED",
+        reference_id: firstTask.id,
+      },
+      {
+        amount: -20,
+        reason: "USAGE",
+        reference_id: "usage-after-approval",
+      },
+      {
+        amount: -10,
+        reason: "UNDO_APPROVAL",
+        reference_id: firstTask.id,
+      },
+      {
+        amount: 10,
+        reason: "TASK_APPROVED",
+        reference_id: secondTask.id,
+      },
+    ]);
+  });
+
+  it("keeps the ledger sum equal to the child balance", () => {
+    const firstTask = createTask({
+      childId: "child-1",
+      title: "Read",
+      reward: 25,
+    });
+
+    markTaskDone(firstTask.id);
+    approveTask(firstTask.id);
+
+    reportUsageSession({
+      id: "usage-ledger-invariant",
+      childId: "child-1",
+      appId: "video",
+      startTime: "2026-09-10T14:00:00.000Z",
+      endTime: "2026-09-10T14:10:00.000Z",
+    });
+
+    undoTask(firstTask.id);
+
+    const secondTask = createTask({
+      childId: "child-1",
+      title: "Homework",
+      reward: 40,
+    });
+
+    markTaskDone(secondTask.id);
+    approveTask(secondTask.id);
+
+    const child = db
+      .prepare("SELECT balance FROM children WHERE id = ?")
+      .get("child-1") as { balance: number };
+
+    const ledgerTotal = db
+      .prepare("SELECT SUM(amount) AS total FROM ledger_entries WHERE child_id = ?")
+      .get("child-1") as { total: number };
+
+    const latestLedgerEntry = db
+      .prepare(
+        "SELECT balance_after FROM ledger_entries WHERE child_id = ? ORDER BY timestamp DESC LIMIT 1"
+      )
+      .get("child-1") as { balance_after: number };
+
+    expect(ledgerTotal.total).toBe(child.balance);
+    expect(latestLedgerEntry.balance_after).toBe(child.balance);
   });
 });

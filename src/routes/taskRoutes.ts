@@ -7,6 +7,7 @@ import {
   createTask,
   markTaskDone,
   rejectTask,
+  undoTask,
 } from "../services/taskService";
 
 type AuthenticatedUser = {
@@ -141,6 +142,31 @@ router.post("/tasks/:id/reject", (req, res) => {
   try {
     const updatedTask = rejectTask(req.params.id);
     res.status(200).json(updatedTask);
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+  }
+});
+
+router.post("/tasks/:id/undo", (req, res) => {
+  const user = res.locals.user as AuthenticatedUser;
+
+  if (user.role !== "parent") {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+
+  const task = findParentsTask.get(req.params.id, user.id) as
+    | TaskRow
+    | undefined;
+
+  if (!task) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+
+  try {
+    const result = undoTask(req.params.id);
+    res.status(200).json(result);
   } catch (error) {
     res.status(400).json({ error: (error as Error).message });
   }

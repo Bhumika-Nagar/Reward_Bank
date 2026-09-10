@@ -54,4 +54,65 @@ describe("Usage Service", () => {
       reason: "USAGE",
       });
   });
+
+  it("does not charge the same usage session twice", () => {
+    const usage = {
+      id: "usage-duplicate",
+      childId: "child-1",
+      appId: "youtube",
+      startTime: "2026-09-10T11:00:00.000Z",
+      endTime: "2026-09-10T11:06:00.000Z",
+    };
+
+    const firstResult = reportUsageSession(usage);
+    const secondResult = reportUsageSession(usage);
+
+    expect(firstResult.coveredMinutes).toBe(6);
+    expect(secondResult.coveredMinutes).toBe(6);
+
+    const child = db
+      .prepare("SELECT balance FROM children WHERE id = ?")
+      .get("child-1") as { balance: number };
+
+    expect(child.balance).toBe(4);
+
+    const ledgerCount = db
+      .prepare("SELECT COUNT(*) AS count FROM ledger_entries WHERE reference_id = ?")
+      .get("usage-duplicate") as { count: number };
+
+    expect(ledgerCount.count).toBe(1);
+  });
+
+  it("processes two usage sessions without letting balance go negative", () => {
+    const firstResult = reportUsageSession({
+      id: "usage-first",
+      childId: "child-1",
+      appId: "youtube",
+      startTime: "2026-09-10T12:00:00.000Z",
+      endTime: "2026-09-10T12:07:00.000Z",
+    });
+
+    const secondResult = reportUsageSession({
+      id: "usage-second",
+      childId: "child-1",
+      appId: "game",
+      startTime: "2026-09-10T12:10:00.000Z",
+      endTime: "2026-09-10T12:17:00.000Z",
+    });
+
+    expect(firstResult.coveredMinutes + secondResult.coveredMinutes).toBe(10);
+
+    const child = db
+      .prepare("SELECT balance FROM children WHERE id = ?")
+      .get("child-1") as { balance: number };
+
+    expect(child.balance).toBe(0);
+    expect(child.balance).toBeGreaterThanOrEqual(0);
+
+    const usageCount = db
+      .prepare("SELECT COUNT(*) AS count FROM usage_sessions")
+      .get() as { count: number };
+
+    expect(usageCount.count).toBe(2);
+  });
 });
