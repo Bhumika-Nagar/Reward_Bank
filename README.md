@@ -8,21 +8,23 @@ RewardBank is a backend-only screen-time bank. Children earn minutes from approv
 - TypeScript
 - Express
 - SQLite
-- better-sqlite3
+- `better-sqlite3`
 - Vitest
-- tsx
+- `tsx`
 
 ## Setup
 
 Install dependencies:
 
+```bash
 npm install
+```
 
+Start the server on `localhost:3000`:
 
-Start the server on localhost:3000:
-
+```bash
 npm start
-
+```
 
 The app uses `rewardbank.db`. Tests use a separate `rewardbank_test.db`.
 
@@ -30,8 +32,9 @@ The app uses `rewardbank.db`. Tests use a separate `rewardbank_test.db`.
 
 Run the test suite:
 
+```bash
 npm test -- --run
-
+```
 
 The tests cover ledger behavior, task approval, duplicate usage, double approval, usage cutoff, undo/debt, debt repayment, and balance invariants.
 
@@ -39,8 +42,9 @@ The tests cover ledger behavior, task approval, duplicate usage, double approval
 
 Authenticated endpoints expect:
 
+```text
 Authorization: Bearer <token>
-
+```
 
 The demo uses these tokens:
 
@@ -53,7 +57,7 @@ The demo uses these tokens:
 
 | Method | Endpoint | Access | Purpose |
 | --- | --- | --- | --- |
-| `GET` | `/` | Valid bearer token because auth routers are mounted first | Health message |
+| `GET` | `/` | None | Health message |
 | `POST` | `/tasks` | Parent | Create a task for one of the parent's children |
 | `POST` | `/tasks/:id/done` | Child | Mark the child's task as done |
 | `POST` | `/tasks/:id/approve` | Parent | Approve a done task |
@@ -67,35 +71,40 @@ The demo uses these tokens:
 
 Create a task:
 
+```bash
 curl -X POST http://localhost:3000/tasks \
   -H "Authorization: Bearer parent-token" \
   -H "Content-Type: application/json" \
   -d "{\"childId\":\"child-1\",\"title\":\"Read for 20 minutes\",\"reward\":30}"
-
+```
 
 Approve a task:
 
+```bash
 curl -X POST http://localhost:3000/tasks/<task-id>/approve \
   -H "Authorization: Bearer parent-token"
-
+```
 
 Report usage:
 
+```bash
 curl -X POST http://localhost:3000/usage \
   -H "Authorization: Bearer child-token" \
   -H "Content-Type: application/json" \
   -d "{\"id\":\"usage-1\",\"childId\":\"child-1\",\"appId\":\"youtube\",\"startTime\":\"2026-09-11T10:00:00.000Z\",\"endTime\":\"2026-09-11T10:12:00.000Z\"}"
-
+```
 
 ## Demo
 
 Run the HTTP simulator:
 
+```bash
 npm run demo
-
+```
 
 ## Project Structure
 
+```text
 src/database.ts              SQLite connection and schema
 src/middleware/              Authentication middleware
 src/routes/                  Express route files
@@ -103,7 +112,7 @@ src/services/                Ledger, task, and usage business logic
 tests/                       Vitest service tests
 simulator/demo.ts            HTTP demo script
 WRITEUP.md                   Engineering write-up
-
+```
 
 ## Documentation
 
