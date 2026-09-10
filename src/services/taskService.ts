@@ -6,7 +6,12 @@ import {
   recordLedgerEntryInCurrentTransaction,
 } from "./ledgerService";
 
-export type TaskStatus = "PENDING" | "DONE" | "APPROVED" | "REJECTED";
+export type TaskStatus =
+  | "PENDING"
+  | "DONE"
+  | "APPROVED"
+  | "REJECTED"
+  | "UNDONE";
 
 export interface Task {
   id: string;
@@ -25,6 +30,13 @@ export interface CreateTaskInput {
   reward: number;
 }
 
+export interface UndoTaskResult {
+  task: Task;
+  amountRemovedFromBalance: number;
+  debtAdded: number;
+  ledgerEntry: LedgerEntry | null;
+}
+
 interface TaskRow {
   id: string;
   child_id: string;
@@ -36,9 +48,18 @@ interface TaskRow {
   approved_at: string | null;
 }
 
+interface ChildBalanceAndDebtRow {
+  balance: number;
+  debt: number;
+}
+
 const getChild = db.prepare("SELECT id FROM children WHERE id = ?");
 
 const getTaskById = db.prepare("SELECT * FROM tasks WHERE id = ?");
+
+const getChildBalanceAndDebt = db.prepare(
+  "SELECT balance, debt FROM children WHERE id = ?"
+);
 
 const insertTask = db.prepare(`
   INSERT INTO tasks (
@@ -68,6 +89,14 @@ const updateTaskRejected = db.prepare(`
   SET status = ?
   WHERE id = ?
 `);
+
+const updateTaskUndone = db.prepare(`
+  UPDATE tasks
+  SET status = ?
+  WHERE id = ?
+`);
+
+const updateChildDebt = db.prepare("UPDATE children SET debt = ? WHERE id = ?");
 
 function mapTask(row: TaskRow): Task {
   return {
@@ -157,7 +186,7 @@ export function markTaskDone(taskId: string): Task {
 }
 
 const approveTaskTransaction = db.transaction(
-  (taskId: string): { task: Task; ledgerEntry: LedgerEntry } => {
+  (taskId: string): { task: Task; ledgerEntry: LedgerEntry | null } => {
     const task = requireTask(taskId);
 
     if (task.status !== "DONE") {
@@ -165,15 +194,30 @@ const approveTaskTransaction = db.transaction(
     }
 
     const approvedAt = new Date().toISOString();
+    const child = getChildBalanceAndDebt.get(task.child_id) as
+      | ChildBalanceAndDebtRow
+      | undefined;
+
+    if (!child) {
+      throw new Error(`Child not found: ${task.child_id}`);
+    }
+
+    const debtPaid = Math.min(task.reward, child.debt);
+    const remainingReward = task.reward - debtPaid;
+
+    updateChildDebt.run(child.debt - debtPaid, task.child_id);
+
+    const ledgerEntry =
+      remainingReward > 0
+        ? recordLedgerEntryInCurrentTransaction({
+            childId: task.child_id,
+            amount: remainingReward,
+            reason: "TASK_APPROVED",
+            referenceId: task.id,
+          })
+        : null;
 
     updateTaskApproved.run("APPROVED", approvedAt, task.id);
-
-    const ledgerEntry = recordLedgerEntryInCurrentTransaction({
-      childId: task.child_id,
-      amount: task.reward,
-      reason: "TASK_APPROVED",
-      referenceId: task.id,
-    });
 
     return {
       task: {
@@ -188,7 +232,7 @@ const approveTaskTransaction = db.transaction(
 
 export function approveTask(taskId: string): {
   task: Task;
-  ledgerEntry: LedgerEntry;
+  ledgerEntry: LedgerEntry | null;
 } {
   if (!taskId.trim()) {
     throw new Error("taskId is required");
@@ -214,4 +258,54 @@ export function rejectTask(taskId: string): Task {
     ...mapTask(task),
     status: "REJECTED",
   };
+}
+
+const undoTaskTransaction = db.transaction((taskId: string): UndoTaskResult => {
+  const task = requireTask(taskId);
+
+  if (task.status !== "APPROVED") {
+    throw new Error("Only an APPROVED task can be undone");
+  }
+
+  const child = getChildBalanceAndDebt.get(task.child_id) as
+    | ChildBalanceAndDebtRow
+    | undefined;
+
+  if (!child) {
+    throw new Error(`Child not found: ${task.child_id}`);
+  }
+
+  const amountToRemove = Math.min(task.reward, child.balance);
+  const remainingDebt = task.reward - amountToRemove;
+
+  const ledgerEntry =
+    amountToRemove > 0
+      ? recordLedgerEntryInCurrentTransaction({
+          childId: task.child_id,
+          amount: -amountToRemove,
+          reason: "UNDO_APPROVAL",
+          referenceId: task.id,
+        })
+      : null;
+
+  updateChildDebt.run(child.debt + remainingDebt, task.child_id);
+  updateTaskUndone.run("UNDONE", task.id);
+
+  return {
+    task: {
+      ...mapTask(task),
+      status: "UNDONE",
+    },
+    amountRemovedFromBalance: amountToRemove,
+    debtAdded: remainingDebt,
+    ledgerEntry,
+  };
+});
+
+export function undoTask(taskId: string): UndoTaskResult {
+  if (!taskId.trim()) {
+    throw new Error("taskId is required");
+  }
+
+  return undoTaskTransaction(taskId);
 }
