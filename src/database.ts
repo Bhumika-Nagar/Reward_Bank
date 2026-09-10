@@ -1,6 +1,11 @@
 import Database from "better-sqlite3";
 
-const db = new Database("rewardbank.db");
+const databaseFile =
+  process.env.NODE_ENV === "test" || process.env.VITEST
+    ? "rewardbank_test.db"
+    : "rewardbank.db";
+
+const db = new Database(databaseFile);
 
 db.pragma("foreign_keys = ON");
 

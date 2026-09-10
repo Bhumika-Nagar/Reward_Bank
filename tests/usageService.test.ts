@@ -20,7 +20,7 @@ describe("Usage Service", () => {
       INSERT INTO children (id, name, token, parent_id, balance)
       VALUES (?, ?, ?, ?, ?)
     `).run("child-1", "Child", "child-token", "parent-1", 10);
-  });
+    });
 
   it("covers available minutes and rejects the rest", () => {
     const startTime = "2026-09-10T10:00:00.000Z";
@@ -31,7 +31,7 @@ describe("Usage Service", () => {
       appId: "youtube",
       startTime,
       endTime: "2026-09-10T10:15:00.000Z",
-    });
+      });
 
     expect(result.coveredMinutes).toBe(10);
     expect(result.rejectedMinutes).toBe(5);
@@ -52,6 +52,6 @@ describe("Usage Service", () => {
     expect(ledgerEntry).toEqual({
       amount: -10,
       reason: "USAGE",
-    });
+      });
   });
 });

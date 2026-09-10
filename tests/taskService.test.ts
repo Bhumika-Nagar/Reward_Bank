@@ -31,7 +31,7 @@ describe("Task Service", () => {
       childId: "child-1",
       title: "Read for 20 minutes",
       reward: 30,
-    });
+      });
 
     markTaskDone(task.id);
 
@@ -53,12 +53,12 @@ describe("Task Service", () => {
       amount: number;
       reason: string;
       reference_id: string;
-    };
+      };
 
     expect(ledgerEntry).toEqual({
       amount: 30,
       reason: "TASK_APPROVED",
       reference_id: task.id,
-    });
+      });
   });
 });

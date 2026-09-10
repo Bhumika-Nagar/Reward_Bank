@@ -19,7 +19,7 @@ describe("Ledger Service", () => {
       INSERT INTO children (id, name, token, parent_id, balance)
       VALUES (?, ?, ?, ?, ?)
     `).run("child-1", "Child", "child-token", "parent-1", 0);
-  });
+    });
 
   it("adds minutes to the child's balance", () => {
     const entry = recordLedgerEntry({
@@ -27,7 +27,7 @@ describe("Ledger Service", () => {
       amount: 30,
       reason: "TASK_APPROVED",
       referenceId: "task-1",
-    });
+      });
 
     expect(entry.amount).toBe(30);
     expect(entry.balanceAfter).toBe(30);
@@ -37,5 +37,5 @@ describe("Ledger Service", () => {
       .get("child-1") as { balance: number };
 
     expect(child.balance).toBe(30);
-  });
+    });
 });
