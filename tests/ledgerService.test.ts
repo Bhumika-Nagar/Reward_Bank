@@ -5,6 +5,7 @@ import { recordLedgerEntry } from "../src/services/ledgerService";
 describe("Ledger Service", () => {
   beforeEach(() => {
     db.prepare("DELETE FROM ledger_entries").run();
+    db.prepare("DELETE FROM usage_sessions").run();
     db.prepare("DELETE FROM tasks").run();
     db.prepare("DELETE FROM children").run();
     db.prepare("DELETE FROM parents").run();
@@ -15,9 +16,9 @@ describe("Ledger Service", () => {
     `).run("parent-1", "Parent", "parent-token");
 
     db.prepare(`
-      INSERT INTO children (id, name, parent_id, balance)
-      VALUES (?, ?, ?, ?)
-    `).run("child-1", "Child", "parent-1", 0);
+      INSERT INTO children (id, name, token, parent_id, balance)
+      VALUES (?, ?, ?, ?, ?)
+    `).run("child-1", "Child", "child-token", "parent-1", 0);
   });
 
   it("adds minutes to the child's balance", () => {

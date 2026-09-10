@@ -14,6 +14,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS children (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
+    token TEXT NOT NULL UNIQUE,
     parent_id TEXT NOT NULL,
     balance INTEGER NOT NULL DEFAULT 0,
     debt INTEGER NOT NULL DEFAULT 0,
