@@ -33,7 +33,7 @@ The app uses `rewardbank.db`. Tests use a separate `rewardbank_test.db`.
 Run the test suite:
 
 ```bash
-npm test -- --run
+npm test
 ```
 
 The tests cover ledger behavior, task approval, duplicate usage, double approval, usage cutoff, undo/debt, debt repayment, and balance invariants.
@@ -45,8 +45,6 @@ Authenticated endpoints expect:
 ```text
 Authorization: Bearer <token>
 ```
-
-The demo creates its own run-scoped parent and child tokens. The curl examples below assume matching parent and child records already exist.
 
 ## API Endpoints
 
@@ -68,7 +66,7 @@ Create a task:
 
 ```bash
 curl -X POST http://localhost:3000/tasks \
-  -H "Authorization: Bearer parent-token" \
+  -H "Authorization: Bearer <parent-token>" \
   -H "Content-Type: application/json" \
   -d "{\"childId\":\"child-1\",\"title\":\"Read for 20 minutes\",\"reward\":30}"
 ```
@@ -77,14 +75,14 @@ Approve a task:
 
 ```bash
 curl -X POST http://localhost:3000/tasks/<task-id>/approve \
-  -H "Authorization: Bearer parent-token"
+  -H "Authorization: Bearer <parent-token>"
 ```
 
 Report usage:
 
 ```bash
 curl -X POST http://localhost:3000/usage \
-  -H "Authorization: Bearer child-token" \
+  -H "Authorization: Bearer <child-token>" \
   -H "Content-Type: application/json" \
   -d "{\"sessions\":[{\"id\":\"usage-1\",\"childId\":\"child-1\",\"appId\":\"youtube\",\"startTime\":\"2026-09-11T10:00:00.000Z\",\"endTime\":\"2026-09-11T10:12:00.000Z\"}]}"
 ```
