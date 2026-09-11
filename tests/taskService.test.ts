@@ -20,12 +20,12 @@ describe("Task Service", () => {
     db.prepare(`
       INSERT INTO parents (id, name, token)
       VALUES (?, ?, ?)
-    `).run("parent-1", "Parent", "parent-token");
+    `).run("parent-1", "Parent", "parent-00000000-0000-4000-8000-000000000001");
 
     db.prepare(`
       INSERT INTO children (id, name, token, parent_id, balance, debt)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run("child-1", "Child", "child-token", "parent-1", 0, 0);
+    `).run("child-1", "Child", "child-00000000-0000-4000-8000-000000000001", "parent-1", 0, 0);
   });
 
   it("approves a completed task and credits the child's balance", () => {

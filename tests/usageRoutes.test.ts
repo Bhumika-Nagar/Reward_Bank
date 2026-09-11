@@ -6,6 +6,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import app from "../src/app";
 import db from "../src/database";
 
+const PARENT_TOKEN = "parent-00000000-0000-4000-8000-000000000001";
+const CHILD_TOKEN = "child-00000000-0000-4000-8000-000000000001";
+
 describe("Usage Routes", () => {
   let server: Server;
   let baseUrl: string;
@@ -20,12 +23,12 @@ describe("Usage Routes", () => {
     db.prepare(`
       INSERT INTO parents (id, name, token)
       VALUES (?, ?, ?)
-    `).run("parent-1", "Parent", "parent-token");
+    `).run("parent-1", "Parent", PARENT_TOKEN);
 
     db.prepare(`
       INSERT INTO children (id, name, token, parent_id, balance, debt)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run("child-1", "Child", "child-token", "parent-1", 10, 0);
+    `).run("child-1", "Child", CHILD_TOKEN, "parent-1", 10, 0);
 
     server = app.listen(0, "127.0.0.1");
 
@@ -54,7 +57,7 @@ describe("Usage Routes", () => {
     const response = await fetch(`${baseUrl}/usage`, {
       method: "POST",
       headers: {
-        Authorization: "Bearer child-token",
+        Authorization: `Bearer ${CHILD_TOKEN}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({

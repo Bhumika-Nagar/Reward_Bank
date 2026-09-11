@@ -33,25 +33,35 @@ export function authMiddleware(
     return;
   }
 
-  const parent = findParentByToken.get(token) as UserRow | undefined;
+  if (token.startsWith("parent-")) {
+    const parent = findParentByToken.get(token) as UserRow | undefined;
 
-  if (parent) {
-    res.locals.user = {
-      id: parent.id,
-      role: "parent",
-    } satisfies AuthenticatedUser;
-    next();
+    if (parent) {
+      res.locals.user = {
+        id: parent.id,
+        role: "parent",
+      } satisfies AuthenticatedUser;
+      next();
+      return;
+    }
+
+    res.status(401).json({ error: "Unauthorized" });
     return;
   }
 
-  const child = findChildByToken.get(token) as UserRow | undefined;
+  if (token.startsWith("child-")) {
+    const child = findChildByToken.get(token) as UserRow | undefined;
 
-  if (child) {
-    res.locals.user = {
-      id: child.id,
-      role: "child",
-    } satisfies AuthenticatedUser;
-    next();
+    if (child) {
+      res.locals.user = {
+        id: child.id,
+        role: "child",
+      } satisfies AuthenticatedUser;
+      next();
+      return;
+    }
+
+    res.status(401).json({ error: "Unauthorized" });
     return;
   }
 

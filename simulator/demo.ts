@@ -164,8 +164,8 @@ async function ensureServer(): Promise<Server | null> {
 function seedDemoUsers(runId: string) {
   const parentId = `${runId}-parent`;
   const childId = `${runId}-child`;
-  const parentToken = `${runId}-parent-token`;
-  const childToken = `${runId}-child-token`;
+  const parentToken = `parent-${randomUUID()}`;
+  const childToken = `child-${randomUUID()}`;
 
   insertParent.run(parentId, "Demo Parent", parentToken);
   insertChild.run(childId, "Demo Child", childToken, parentId);
