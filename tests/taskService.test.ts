@@ -50,16 +50,18 @@ describe("Task Service", () => {
 
     const ledgerEntry = db
       .prepare(
-        "SELECT amount, reason, reference_id FROM ledger_entries WHERE child_id = ?"
+        "SELECT amount, debt_change, reason, reference_id FROM ledger_entries WHERE child_id = ?"
       )
       .get("child-1") as {
       amount: number;
+      debt_change: number;
       reason: string;
       reference_id: string;
     };
 
     expect(ledgerEntry).toEqual({
       amount: 30,
+      debt_change: 0,
       reason: "TASK_APPROVED",
       reference_id: task.id,
     });
@@ -93,17 +95,54 @@ describe("Task Service", () => {
 
     const ledgerEntries = db
       .prepare(
-        "SELECT amount, reason, reference_id FROM ledger_entries WHERE reference_id = ?"
+        "SELECT amount, debt_change, reason, reference_id FROM ledger_entries WHERE reference_id = ?"
       )
       .all(task.id);
 
     expect(ledgerEntries).toEqual([
       {
         amount: 10,
+        debt_change: -20,
         reason: "TASK_APPROVED",
         reference_id: task.id,
       },
     ]);
+  });
+
+  it("records debt repayment even when no balance is credited", () => {
+    db.prepare("UPDATE children SET balance = ?, debt = ? WHERE id = ?").run(
+      0,
+      40,
+      "child-1"
+    );
+
+    const task = createTask({
+      childId: "child-1",
+      title: "Clean bedroom",
+      reward: 30,
+    });
+
+    markTaskDone(task.id);
+    approveTask(task.id);
+
+    const child = db
+      .prepare("SELECT balance, debt FROM children WHERE id = ?")
+      .get("child-1") as { balance: number; debt: number };
+
+    const ledgerEntry = db
+      .prepare(
+        "SELECT amount, debt_change, reason, reference_id FROM ledger_entries WHERE reference_id = ?"
+      )
+      .get(task.id);
+
+    expect(child.balance).toBe(0);
+    expect(child.debt).toBe(10);
+    expect(ledgerEntry).toEqual({
+      amount: 0,
+      debt_change: -30,
+      reason: "TASK_APPROVED",
+      reference_id: task.id,
+    });
   });
 
   it("does not approve the same task twice", () => {
@@ -180,28 +219,32 @@ describe("Task Service", () => {
 
     const ledgerEntries = db
       .prepare(
-        "SELECT amount, reason, reference_id FROM ledger_entries ORDER BY rowid"
+        "SELECT amount, debt_change, reason, reference_id FROM ledger_entries ORDER BY rowid"
       )
       .all();
 
     expect(ledgerEntries).toEqual([
       {
         amount: 30,
+        debt_change: 0,
         reason: "TASK_APPROVED",
         reference_id: firstTask.id,
       },
       {
         amount: -20,
+        debt_change: 0,
         reason: "USAGE",
         reference_id: "usage-after-approval",
       },
       {
         amount: -10,
+        debt_change: 20,
         reason: "UNDO_APPROVAL",
         reference_id: firstTask.id,
       },
       {
         amount: 10,
+        debt_change: -20,
         reason: "TASK_APPROVED",
         reference_id: secondTask.id,
       },
@@ -238,11 +281,14 @@ describe("Task Service", () => {
     approveTask(secondTask.id);
 
     const child = db
-      .prepare("SELECT balance FROM children WHERE id = ?")
-      .get("child-1") as { balance: number };
+      .prepare("SELECT balance, debt FROM children WHERE id = ?")
+      .get("child-1") as { balance: number; debt: number };
 
     const ledgerTotal = db
       .prepare("SELECT SUM(amount) AS total FROM ledger_entries WHERE child_id = ?")
+      .get("child-1") as { total: number };
+    const ledgerDebtTotal = db
+      .prepare("SELECT SUM(debt_change) AS total FROM ledger_entries WHERE child_id = ?")
       .get("child-1") as { total: number };
 
     const latestLedgerEntry = db
@@ -252,6 +298,7 @@ describe("Task Service", () => {
       .get("child-1") as { balance_after: number };
 
     expect(ledgerTotal.total).toBe(child.balance);
+    expect(ledgerDebtTotal.total).toBe(child.debt);
     expect(latestLedgerEntry.balance_after).toBe(child.balance);
   });
 });

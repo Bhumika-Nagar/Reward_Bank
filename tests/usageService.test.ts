@@ -49,12 +49,13 @@ describe("Usage Service", () => {
 
     const ledgerEntry = db
       .prepare(
-        "SELECT amount, reason FROM ledger_entries WHERE reference_id = ?"
+        "SELECT amount, debt_change, reason FROM ledger_entries WHERE reference_id = ?"
       )
-      .get("usage-1") as { amount: number; reason: string };
+      .get("usage-1") as { amount: number; debt_change: number; reason: string };
 
     expect(ledgerEntry).toEqual({
       amount: -10,
+      debt_change: 0,
       reason: "USAGE",
       });
   });
@@ -259,18 +260,20 @@ describe("Usage Service", () => {
 
     const ledgerEntries = db
       .prepare(
-        "SELECT amount, reason, reference_id FROM ledger_entries ORDER BY rowid"
+        "SELECT amount, debt_change, reason, reference_id FROM ledger_entries ORDER BY rowid"
       )
       .all();
 
     expect(ledgerEntries).toEqual([
       {
         amount: -4,
+        debt_change: 0,
         reason: "USAGE",
         reference_id: "batch-normal",
       },
       {
         amount: -6,
+        debt_change: 0,
         reason: "USAGE",
         reference_id: "batch-over-limit",
       },

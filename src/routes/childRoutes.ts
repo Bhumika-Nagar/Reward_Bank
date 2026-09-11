@@ -31,6 +31,7 @@ const getChildLedger = db.prepare(`
     id,
     child_id AS childId,
     amount,
+    debt_change AS debtChange,
     reason,
     reference_id AS referenceId,
     timestamp,

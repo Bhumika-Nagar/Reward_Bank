@@ -5,6 +5,7 @@ import db from "../database";
 export interface RecordLedgerEntryInput {
   childId: string;
   amount: number;
+  debtChange?: number;
   reason: string;
   referenceId: string;
 }
@@ -13,6 +14,7 @@ export interface LedgerEntry {
   id: string;
   childId: string;
   amount: number;
+  debtChange: number;
   reason: string;
   referenceId: string;
   timestamp: string;
@@ -32,11 +34,12 @@ const insertLedgerEntry = db.prepare(`
     id,
     child_id,
     amount,
+    debt_change,
     reason,
     reference_id,
     timestamp,
     balance_after
-  ) VALUES (?, ?, ?, ?, ?, ?, ?)
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const updateChildBalance = db.prepare(
@@ -50,6 +53,13 @@ function validateLedgerEntryInput(input: RecordLedgerEntryInput): void {
 
   if (!Number.isInteger(input.amount)) {
     throw new Error("amount must be an integer");
+  }
+
+  if (
+    input.debtChange !== undefined &&
+    !Number.isInteger(input.debtChange)
+  ) {
+    throw new Error("debtChange must be an integer");
   }
 
   if (!input.reason.trim()) {
@@ -84,6 +94,7 @@ export function recordLedgerEntryInCurrentTransaction(
     id: randomUUID(),
     childId: input.childId,
     amount: input.amount,
+    debtChange: input.debtChange ?? 0,
     reason: input.reason,
     referenceId: input.referenceId,
     timestamp: new Date().toISOString(),
@@ -94,6 +105,7 @@ export function recordLedgerEntryInCurrentTransaction(
     entry.id,
     entry.childId,
     entry.amount,
+    entry.debtChange,
     entry.reason,
     entry.referenceId,
     entry.timestamp,

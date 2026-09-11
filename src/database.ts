@@ -59,6 +59,7 @@ db.exec(`
     id TEXT PRIMARY KEY,
     child_id TEXT NOT NULL,
     amount INTEGER NOT NULL,
+    debt_change INTEGER NOT NULL DEFAULT 0,
     reason TEXT NOT NULL,
     reference_id TEXT NOT NULL,
     timestamp TEXT NOT NULL,
@@ -74,6 +75,14 @@ const usageColumns = db
 
 if (!usageColumns.some((column) => column.name === "remaining_balance")) {
   db.exec("ALTER TABLE usage_sessions ADD COLUMN remaining_balance INTEGER");
+}
+
+const ledgerColumns = db
+  .prepare("PRAGMA table_info(ledger_entries)")
+  .all() as { name: string }[];
+
+if (!ledgerColumns.some((column) => column.name === "debt_change")) {
+  db.exec("ALTER TABLE ledger_entries ADD COLUMN debt_change INTEGER NOT NULL DEFAULT 0");
 }
 
 db.exec(`

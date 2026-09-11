@@ -14,6 +14,7 @@ type ApiOptions = {
 
 type LedgerEntry = {
   amount: number;
+  debtChange: number;
   reason: string;
   referenceId: string;
   balanceAfter: number;
@@ -57,6 +58,7 @@ const insertChild = db.prepare(`
 const getDemoLedgerEntries = db.prepare(`
   SELECT
     amount,
+    debt_change AS debtChange,
     reason,
     reference_id AS referenceId,
     balance_after AS balanceAfter
@@ -224,8 +226,14 @@ function formatLedger(entries: LedgerEntry[], printedCount: number): string[] {
   }
 
   return newEntries.map(
-    (entry) =>
-      `Ledger: ${formatAmount(entry.amount)} ${entry.reason} -> balance ${entry.balanceAfter}`
+    (entry) => {
+      const debtChange =
+        entry.debtChange === 0
+          ? ""
+          : `, debt ${formatAmount(entry.debtChange)}`;
+
+      return `Ledger: ${formatAmount(entry.amount)} ${entry.reason}${debtChange} -> balance ${entry.balanceAfter}`;
+    }
   );
 }
 
@@ -438,6 +446,37 @@ async function runDemo() {
       `Debt: ${childAfterUndo.debt}`,
     ]);
 
+    const debtRepaymentTask = await apiRequest("/tasks", {
+      method: "POST",
+      token: parentToken,
+      body: {
+        childId,
+        title: "Demo: repay undo debt",
+        reward: 5,
+      },
+    });
+    await apiRequest(`/tasks/${debtRepaymentTask.id}/done`, {
+      method: "POST",
+      token: childToken,
+    });
+    const childBeforeDebtRepayment = readChildState(childId);
+    const debtRepaymentApproval = await apiRequest(
+      `/tasks/${debtRepaymentTask.id}/approve`,
+      {
+        method: "POST",
+        token: parentToken,
+      }
+    );
+    const childAfterDebtRepayment = readChildState(childId);
+    printNewLedger("11. Parent approved reward that repaid debt", [
+      `Status: ${debtRepaymentApproval.status}`,
+      `Reward: ${debtRepaymentTask.reward}`,
+      `Debt repaid: ${childBeforeDebtRepayment.debt - childAfterDebtRepayment.debt}`,
+      `Added to balance: ${childAfterDebtRepayment.balance - childBeforeDebtRepayment.balance}`,
+      `Remaining debt: ${childAfterDebtRepayment.debt}`,
+      `Balance: ${childAfterDebtRepayment.balance}`,
+    ]);
+
     const ledgerTotal = getLedgerTotal.get(childId) as { total: number };
     const finalChild = readChildState(childId);
 
@@ -447,7 +486,7 @@ async function runDemo() {
       );
     }
 
-    printStep("11. Invariant verified", [
+    printStep("12. Invariant verified", [
       `SUM(ledger_entries.amount): ${ledgerTotal.total}`,
       `Child balance: ${finalChild.balance}`,
       `Child debt: ${finalChild.debt}`,

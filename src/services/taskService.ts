@@ -208,10 +208,11 @@ const approveTaskTransaction = db.transaction(
     updateChildDebt.run(child.debt - debtPaid, task.child_id);
 
     const ledgerEntry =
-      remainingReward > 0
+      remainingReward > 0 || debtPaid > 0
         ? recordLedgerEntryInCurrentTransaction({
             childId: task.child_id,
             amount: remainingReward,
+            debtChange: -debtPaid,
             reason: "TASK_APPROVED",
             referenceId: task.id,
           })
@@ -279,10 +280,11 @@ const undoTaskTransaction = db.transaction((taskId: string): UndoTaskResult => {
   const remainingDebt = task.reward - amountToRemove;
 
   const ledgerEntry =
-    amountToRemove > 0
+    amountToRemove > 0 || remainingDebt > 0
       ? recordLedgerEntryInCurrentTransaction({
           childId: task.child_id,
           amount: -amountToRemove,
+          debtChange: remainingDebt,
           reason: "UNDO_APPROVAL",
           referenceId: task.id,
         })

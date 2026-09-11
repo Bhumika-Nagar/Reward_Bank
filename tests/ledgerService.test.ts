@@ -30,6 +30,7 @@ describe("Ledger Service", () => {
       });
 
     expect(entry.amount).toBe(30);
+    expect(entry.debtChange).toBe(0);
     expect(entry.balanceAfter).toBe(30);
 
     const child = db
