@@ -1,7 +1,11 @@
 import { Router } from "express";
 
 import { authMiddleware } from "../middleware/authMiddleware";
-import { reportUsageSession } from "../services/usageService";
+import {
+  reportUsageSession,
+  reportUsageSessions,
+} from "../services/usageService";
+import type { ReportUsageSessionInput } from "../services/usageService";
 
 type AuthenticatedUser = {
   id: string;
@@ -9,6 +13,22 @@ type AuthenticatedUser = {
 };
 
 const router = Router();
+
+function isUsageSessionInput(value: unknown): value is ReportUsageSessionInput {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const session = value as Record<string, unknown>;
+
+  return (
+    typeof session.id === "string" &&
+    typeof session.childId === "string" &&
+    typeof session.appId === "string" &&
+    typeof session.startTime === "string" &&
+    typeof session.endTime === "string"
+  );
+}
 
 router.use(authMiddleware);
 
@@ -20,33 +40,28 @@ router.post("/usage", (req, res) => {
     return;
   }
 
-  const { id, childId, appId, startTime, endTime } = req.body;
+  const sessions: unknown[] = Array.isArray(req.body.sessions)
+    ? req.body.sessions
+    : [req.body];
 
-  if (
-    typeof id !== "string" ||
-    typeof childId !== "string" ||
-    typeof appId !== "string" ||
-    typeof startTime !== "string" ||
-    typeof endTime !== "string"
-  ) {
+  if (sessions.length === 0 || !sessions.every(isUsageSessionInput)) {
     res.status(400).json({ error: "Invalid usage data" });
     return;
   }
 
-  if (childId !== user.id) {
+  if (sessions.some((session) => session.childId !== user.id)) {
     res.status(403).json({ error: "Forbidden" });
     return;
   }
 
   try {
-    const result = reportUsageSession({
-      id,
-      childId,
-      appId,
-      startTime,
-      endTime,
-    });
+    if (Array.isArray(req.body.sessions)) {
+      const results = reportUsageSessions(sessions);
+      res.status(200).json({ results });
+      return;
+    }
 
+    const result = reportUsageSession(sessions[0]);
     res.status(200).json(result);
   } catch (error) {
     res.status(400).json({ error: (error as Error).message });

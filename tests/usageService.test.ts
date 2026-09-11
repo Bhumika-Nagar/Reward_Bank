@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import db from "../src/database";
-import { reportUsageSession } from "../src/services/usageService";
+import {
+  reportUsageSession,
+  reportUsageSessions,
+} from "../src/services/usageService";
 
 describe("Usage Service", () => {
   beforeEach(() => {
@@ -114,5 +117,141 @@ describe("Usage Service", () => {
       .get() as { count: number };
 
     expect(usageCount.count).toBe(2);
+  });
+
+  it("processes a batch in request order without letting balance go negative", () => {
+    const results = reportUsageSessions([
+      {
+        id: "batch-normal",
+        childId: "child-1",
+        appId: "reading-app",
+        startTime: "2026-09-10T15:00:00.000Z",
+        endTime: "2026-09-10T15:04:00.000Z",
+      },
+      {
+        id: "batch-over-limit",
+        childId: "child-1",
+        appId: "video-app",
+        startTime: "2026-09-10T15:10:00.000Z",
+        endTime: "2026-09-10T15:19:00.000Z",
+      },
+    ]);
+
+    expect(results).toMatchObject([
+      {
+        usageId: "batch-normal",
+        coveredMinutes: 4,
+        rejectedMinutes: 0,
+        remainingBalance: 6,
+      },
+      {
+        usageId: "batch-over-limit",
+        coveredMinutes: 6,
+        rejectedMinutes: 3,
+        cutoffTime: "2026-09-10T15:16:00.000Z",
+        remainingBalance: 0,
+      },
+    ]);
+
+    const child = db
+      .prepare("SELECT balance FROM children WHERE id = ?")
+      .get("child-1") as { balance: number };
+
+    expect(child.balance).toBe(0);
+
+    const ledgerEntries = db
+      .prepare(
+        "SELECT amount, reason, reference_id FROM ledger_entries ORDER BY rowid"
+      )
+      .all();
+
+    expect(ledgerEntries).toEqual([
+      {
+        amount: -4,
+        reason: "USAGE",
+        reference_id: "batch-normal",
+      },
+      {
+        amount: -6,
+        reason: "USAGE",
+        reference_id: "batch-over-limit",
+      },
+    ]);
+  });
+
+  it("does not charge duplicate usage sessions inside a batch twice", () => {
+    const usage = {
+      id: "batch-duplicate",
+      childId: "child-1",
+      appId: "game",
+      startTime: "2026-09-10T16:00:00.000Z",
+      endTime: "2026-09-10T16:03:00.000Z",
+    };
+
+    const results = reportUsageSessions([usage, usage]);
+
+    expect(results).toMatchObject([
+      {
+        usageId: "batch-duplicate",
+        coveredMinutes: 3,
+        rejectedMinutes: 0,
+        remainingBalance: 7,
+      },
+      {
+        usageId: "batch-duplicate",
+        coveredMinutes: 3,
+        rejectedMinutes: 0,
+        remainingBalance: 7,
+      },
+    ]);
+
+    const child = db
+      .prepare("SELECT balance FROM children WHERE id = ?")
+      .get("child-1") as { balance: number };
+
+    expect(child.balance).toBe(7);
+
+    const ledgerCount = db
+      .prepare("SELECT COUNT(*) AS count FROM ledger_entries WHERE reference_id = ?")
+      .get("batch-duplicate") as { count: number };
+
+    expect(ledgerCount.count).toBe(1);
+  });
+
+  it("rolls back the whole batch when one session is invalid", () => {
+    expect(() =>
+      reportUsageSessions([
+        {
+          id: "batch-before-invalid",
+          childId: "child-1",
+          appId: "video",
+          startTime: "2026-09-10T17:00:00.000Z",
+          endTime: "2026-09-10T17:05:00.000Z",
+        },
+        {
+          id: "batch-invalid",
+          childId: "child-1",
+          appId: "video",
+          startTime: "2026-09-10T17:10:00.000Z",
+          endTime: "2026-09-10T17:09:00.000Z",
+        },
+      ])
+    ).toThrow("startTime must be before endTime");
+
+    const child = db
+      .prepare("SELECT balance FROM children WHERE id = ?")
+      .get("child-1") as { balance: number };
+
+    const usageCount = db
+      .prepare("SELECT COUNT(*) AS count FROM usage_sessions")
+      .get() as { count: number };
+
+    const ledgerCount = db
+      .prepare("SELECT COUNT(*) AS count FROM ledger_entries")
+      .get() as { count: number };
+
+    expect(child.balance).toBe(10);
+    expect(usageCount.count).toBe(0);
+    expect(ledgerCount.count).toBe(0);
   });
 });

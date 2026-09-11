@@ -24,6 +24,26 @@ type ChildState = {
   debt: number;
 };
 
+type UsageSessionPayload = {
+  id: string;
+  childId: string;
+  appId: string;
+  startTime: string;
+  endTime: string;
+};
+
+type UsageResult = {
+  usageId: string;
+  coveredMinutes: number;
+  rejectedMinutes: number;
+  cutoffTime: string | null;
+  remainingBalance: number;
+};
+
+type UsageBatchResult = {
+  results: UsageResult[];
+};
+
 const insertParent = db.prepare(`
   INSERT INTO parents (id, name, token)
   VALUES (?, ?, ?)
@@ -73,6 +93,30 @@ async function apiRequest(path: string, options: ApiOptions) {
   }
 
   return data;
+}
+
+async function apiRequestExpectingError(path: string, options: ApiOptions) {
+  const response = await fetch(`${API_URL}${path}`, {
+    method: options.method ?? "GET",
+    headers: {
+      Authorization: `Bearer ${options.token}`,
+      "Content-Type": "application/json",
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+
+  const text = await response.text();
+
+  if (response.ok) {
+    throw new Error(
+      `${options.method ?? "GET"} ${path} unexpectedly succeeded: ${text}`
+    );
+  }
+
+  return {
+    status: response.status,
+    body: text ? (JSON.parse(text) as { error?: string }) : null,
+  };
 }
 
 async function isServerReady(): Promise<boolean> {
@@ -142,6 +186,24 @@ function printStep(title: string, lines: string[]) {
 
 function formatAmount(amount: number) {
   return amount > 0 ? `+${amount}` : String(amount);
+}
+
+async function reportUsageBatch(
+  token: string,
+  sessions: UsageSessionPayload[]
+): Promise<UsageBatchResult> {
+  return (await apiRequest("/usage", {
+    method: "POST",
+    token,
+    body: { sessions },
+  })) as UsageBatchResult;
+}
+
+function formatUsageResults(results: UsageResult[]): string[] {
+  return results.map(
+    (result) =>
+      `${result.usageId}: covered ${result.coveredMinutes}, rejected ${result.rejectedMinutes}, cutoff ${result.cutoffTime ?? "none"}, balance ${result.remainingBalance}`
+  );
 }
 
 function readChildState(childId: string): ChildState {
@@ -227,40 +289,35 @@ async function runDemo() {
       `Balance: ${readChildState(childId).balance}`,
     ]);
 
-    const zeroingUsage = await apiRequest("/usage", {
-      method: "POST",
-      token: childToken,
-      body: {
+    const normalUsageSession = {
+      id: `${runId}-usage-normal-day`,
+      childId,
+      appId: "demo-app",
+      startTime: "2026-09-11T10:00:00.000Z",
+      endTime: "2026-09-11T10:04:00.000Z",
+    };
+    const normalUsage = await reportUsageBatch(childToken, [normalUsageSession]);
+    printNewLedger("4. Batch normal-day usage", formatUsageResults(normalUsage.results));
+
+    const overLimitUsage = await reportUsageBatch(childToken, [
+      {
         id: `${runId}-usage-to-zero`,
         childId,
         appId: "demo-app",
-        startTime: "2026-09-11T10:00:00.000Z",
-        endTime: "2026-09-11T10:10:00.000Z",
+        startTime: "2026-09-11T10:10:00.000Z",
+        endTime: "2026-09-11T10:18:00.000Z",
       },
-    });
-    printNewLedger("4. Usage consumed the balance", [
-      `Covered: ${zeroingUsage.coveredMinutes}`,
-      `Rejected: ${zeroingUsage.rejectedMinutes}`,
-      `Remaining balance: ${zeroingUsage.remainingBalance}`,
     ]);
+    printNewLedger(
+      "5. Batch usage exceeded the remaining balance",
+      formatUsageResults(overLimitUsage.results)
+    );
 
-    const rejectedUsage = await apiRequest("/usage", {
-      method: "POST",
-      token: childToken,
-      body: {
-        id: `${runId}-usage-rejected-at-zero`,
-        childId,
-        appId: "demo-app",
-        startTime: "2026-09-11T10:15:00.000Z",
-        endTime: "2026-09-11T10:20:00.000Z",
-      },
-    });
-    printNewLedger("5. Additional usage was rejected at zero", [
-      `Covered: ${rejectedUsage.coveredMinutes}`,
-      `Rejected: ${rejectedUsage.rejectedMinutes}`,
-      `Cutoff: ${rejectedUsage.cutoffTime ?? "none"}`,
-      `Remaining balance: ${rejectedUsage.remainingBalance}`,
-    ]);
+    const duplicateUsage = await reportUsageBatch(childToken, [normalUsageSession]);
+    printNewLedger(
+      "6. Batch duplicate usage report",
+      formatUsageResults(duplicateUsage.results)
+    );
 
     const secondTask = await apiRequest("/tasks", {
       method: "POST",
@@ -295,7 +352,7 @@ async function runDemo() {
       );
     }
 
-    printNewLedger("6. Parent approved another reward", [
+    printNewLedger("7. Parent approved another reward", [
       `Status: ${secondApprovedTask.status}`,
       `Reward: ${secondTask.reward}`,
       `Debt repaid: ${debtRepaid}`,
@@ -304,29 +361,76 @@ async function runDemo() {
       `Balance: ${childAfterSecondApproval.balance}`,
     ]);
 
-    const resumedUsage = await apiRequest("/usage", {
+    const failedBatchValidSession = {
+      id: `${runId}-usage-would-charge`,
+      childId,
+      appId: "demo-app",
+      startTime: "2026-09-11T10:20:00.000Z",
+      endTime: "2026-09-11T10:22:00.000Z",
+    };
+    const failedBatchInvalidSession = {
+      id: `${runId}-usage-invalid-time`,
+      childId,
+      appId: "demo-app",
+      startTime: "2026-09-11T10:25:00.000Z",
+      endTime: "2026-09-11T10:24:00.000Z",
+    };
+    const balanceBeforeBadBatch = readChildState(childId).balance;
+    const badBatch = await apiRequestExpectingError("/usage", {
       method: "POST",
       token: childToken,
       body: {
-        id: `${runId}-usage-resumed`,
-        childId,
-        appId: "demo-app",
-        startTime: "2026-09-11T10:30:00.000Z",
-        endTime: "2026-09-11T10:33:00.000Z",
+        sessions: [failedBatchValidSession, failedBatchInvalidSession],
       },
     });
-    printNewLedger("7. Usage resumed after the new reward", [
-      `Covered: ${resumedUsage.coveredMinutes}`,
-      `Rejected: ${resumedUsage.rejectedMinutes}`,
-      `Remaining balance: ${resumedUsage.remainingBalance}`,
+    const balanceAfterBadBatch = readChildState(childId).balance;
+    const failedBatchLedgerEntries = getDemoLedger(childId).filter((entry) =>
+      [
+        failedBatchValidSession.id,
+        failedBatchInvalidSession.id,
+      ].includes(entry.referenceId)
+    );
+
+    if (balanceBeforeBadBatch < 2) {
+      throw new Error("Bad batch setup failed: valid session could not consume minutes");
+    }
+
+    if (balanceAfterBadBatch !== balanceBeforeBadBatch) {
+      throw new Error("Bad batch rollback failed: child balance changed");
+    }
+
+    if (failedBatchLedgerEntries.length !== 0) {
+      throw new Error("Bad batch rollback failed: ledger entries were created");
+    }
+
+    printNewLedger("8. Batch everything-goes-wrong rejected", [
+      `HTTP status: ${badBatch.status}`,
+      `Error: ${badBatch.body?.error ?? "unknown"}`,
+      `Valid session would consume: 2`,
+      `Balance unchanged: ${balanceAfterBadBatch === balanceBeforeBadBatch}`,
+      `Ledger entries for failed batch sessions: ${failedBatchLedgerEntries.length}`,
     ]);
+
+    const lateOfflineUsage = await reportUsageBatch(childToken, [
+      {
+        id: `${runId}-usage-late-offline`,
+        childId,
+        appId: "offline-game",
+        startTime: "2026-09-10T23:50:00.000Z",
+        endTime: "2026-09-10T23:53:00.000Z",
+      },
+    ]);
+    printNewLedger(
+      "9. Batch late/offline usage",
+      formatUsageResults(lateOfflineUsage.results)
+    );
 
     const undoResult = await apiRequest(`/tasks/${secondTask.id}/undo`, {
       method: "POST",
       token: parentToken,
     });
     const childAfterUndo = readChildState(childId);
-    printNewLedger("8. Parent undid the approved reward", [
+    printNewLedger("10. Parent undid the approved reward", [
       `Status: ${undoResult.task.status}`,
       `Removed from balance: ${undoResult.amountRemovedFromBalance}`,
       `Debt added: ${undoResult.debtAdded}`,
@@ -343,7 +447,7 @@ async function runDemo() {
       );
     }
 
-    printStep("9. Invariant verified", [
+    printStep("11. Invariant verified", [
       `SUM(ledger_entries.amount): ${ledgerTotal.total}`,
       `Child balance: ${finalChild.balance}`,
       `Child debt: ${finalChild.debt}`,

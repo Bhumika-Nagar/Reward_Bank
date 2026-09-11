@@ -46,12 +46,7 @@ Authenticated endpoints expect:
 Authorization: Bearer <token>
 ```
 
-The demo uses these tokens:
-
-| Role | Token |
-| --- | --- |
-| Parent | `parent-token` |
-| Child | `child-token` |
+The demo creates its own run-scoped parent and child tokens. The curl examples below assume matching parent and child records already exist.
 
 ## API Endpoints
 
@@ -63,7 +58,7 @@ The demo uses these tokens:
 | `POST` | `/tasks/:id/approve` | Parent | Approve a done task |
 | `POST` | `/tasks/:id/reject` | Parent | Reject a done task |
 | `POST` | `/tasks/:id/undo` | Parent | Undo an approved task |
-| `POST` | `/usage` | Child | Report a usage session |
+| `POST` | `/usage` | Child | Report one or more usage sessions |
 | `GET` | `/children/:id/balance` | Parent/Child | Read a child's balance |
 | `GET` | `/children/:id/ledger` | Parent/Child | Read a child's ledger entries |
 
@@ -91,8 +86,10 @@ Report usage:
 curl -X POST http://localhost:3000/usage \
   -H "Authorization: Bearer child-token" \
   -H "Content-Type: application/json" \
-  -d "{\"id\":\"usage-1\",\"childId\":\"child-1\",\"appId\":\"youtube\",\"startTime\":\"2026-09-11T10:00:00.000Z\",\"endTime\":\"2026-09-11T10:12:00.000Z\"}"
+  -d "{\"sessions\":[{\"id\":\"usage-1\",\"childId\":\"child-1\",\"appId\":\"youtube\",\"startTime\":\"2026-09-11T10:00:00.000Z\",\"endTime\":\"2026-09-11T10:12:00.000Z\"}]}"
 ```
+
+Batch usage sessions are processed in the order provided. The batch succeeds or fails as one transaction, so an invalid session rolls back the whole batch. Duplicate session IDs return the original result without charging twice.
 
 ## Demo
 

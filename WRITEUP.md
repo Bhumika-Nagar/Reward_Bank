@@ -12,6 +12,8 @@ d. Debt is tracked separately from the available balance, so child can never hav
 
 e. The application currently uses SQLite and is designed as a single-process application as this assessment doesn't require distributed deployment and it keeps the transaction and ledger logic simple to reason about.
 
+f. Batched usage sessions are processed in the order received inside one transaction. If any session in the batch is invalid, the whole batch is rejected and no partial usage or ledger entries are recorded.
+
 
 2. What happens if the parent clicks the "approved" twice ?
 
