@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import db from "../src/database";
+import { recordLedgerEntry } from "../src/services/ledgerService";
 import {
   reportUsageSession,
   reportUsageSessions,
@@ -70,6 +71,7 @@ describe("Usage Service", () => {
     const firstResult = reportUsageSession(usage);
     const secondResult = reportUsageSession(usage);
 
+    expect(secondResult).toEqual(firstResult);
     expect(firstResult.coveredMinutes).toBe(6);
     expect(secondResult.coveredMinutes).toBe(6);
 
@@ -83,6 +85,102 @@ describe("Usage Service", () => {
       .prepare("SELECT COUNT(*) AS count FROM ledger_entries WHERE reference_id = ?")
       .get("usage-duplicate") as { count: number };
 
+    expect(ledgerCount.count).toBe(1);
+  });
+
+  it("returns the original duplicate result after later balance activity", () => {
+    const usage = {
+      id: "usage-stable-retry",
+      childId: "child-1",
+      appId: "youtube",
+      startTime: "2026-09-10T11:30:00.000Z",
+      endTime: "2026-09-10T11:40:00.000Z",
+    };
+
+    const firstResult = reportUsageSession(usage);
+
+    recordLedgerEntry({
+      childId: "child-1",
+      amount: 20,
+      reason: "TASK_APPROVED",
+      referenceId: "later-reward",
+    });
+
+    const secondResult = reportUsageSession(usage);
+
+    expect(firstResult).toEqual({
+      usageId: "usage-stable-retry",
+      coveredMinutes: 10,
+      rejectedMinutes: 0,
+      cutoffTime: null,
+      remainingBalance: 0,
+    });
+    expect(secondResult).toEqual(firstResult);
+
+    const child = db
+      .prepare("SELECT balance FROM children WHERE id = ?")
+      .get("child-1") as { balance: number };
+
+    expect(child.balance).toBe(20);
+  });
+
+  it("rejects the same usage ID with a different appId", () => {
+    reportUsageSession({
+      id: "usage-conflicting-app",
+      childId: "child-1",
+      appId: "youtube",
+      startTime: "2026-09-10T11:45:00.000Z",
+      endTime: "2026-09-10T11:48:00.000Z",
+    });
+
+    expect(() =>
+      reportUsageSession({
+        id: "usage-conflicting-app",
+        childId: "child-1",
+        appId: "game",
+        startTime: "2026-09-10T11:45:00.000Z",
+        endTime: "2026-09-10T11:48:00.000Z",
+      })
+    ).toThrow("Usage session already exists with different details");
+
+    const child = db
+      .prepare("SELECT balance FROM children WHERE id = ?")
+      .get("child-1") as { balance: number };
+    const ledgerCount = db
+      .prepare("SELECT COUNT(*) AS count FROM ledger_entries WHERE reference_id = ?")
+      .get("usage-conflicting-app") as { count: number };
+
+    expect(child.balance).toBe(7);
+    expect(ledgerCount.count).toBe(1);
+  });
+
+  it("rejects the same usage ID with different times", () => {
+    reportUsageSession({
+      id: "usage-conflicting-time",
+      childId: "child-1",
+      appId: "youtube",
+      startTime: "2026-09-10T11:50:00.000Z",
+      endTime: "2026-09-10T11:53:00.000Z",
+    });
+
+    expect(() =>
+      reportUsageSession({
+        id: "usage-conflicting-time",
+        childId: "child-1",
+        appId: "youtube",
+        startTime: "2026-09-10T11:51:00.000Z",
+        endTime: "2026-09-10T11:54:00.000Z",
+      })
+    ).toThrow("Usage session already exists with different details");
+
+    const child = db
+      .prepare("SELECT balance FROM children WHERE id = ?")
+      .get("child-1") as { balance: number };
+    const ledgerCount = db
+      .prepare("SELECT COUNT(*) AS count FROM ledger_entries WHERE reference_id = ?")
+      .get("usage-conflicting-time") as { count: number };
+
+    expect(child.balance).toBe(7);
     expect(ledgerCount.count).toBe(1);
   });
 

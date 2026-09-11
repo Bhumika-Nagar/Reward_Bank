@@ -24,15 +24,19 @@ interface ChildBalanceRow {
 interface UsageSessionRow {
   id: string;
   child_id: string;
+  app_id: string;
+  start_time: string;
+  end_time: string;
   covered_minutes: number;
   rejected_minutes: number;
   cutoff_time: string | null;
+  remaining_balance: number | null;
 }
 
 const getChildBalance = db.prepare("SELECT balance FROM children WHERE id = ?");
 
 const getUsageSession = db.prepare(
-  "SELECT id, child_id, covered_minutes, rejected_minutes, cutoff_time FROM usage_sessions WHERE id = ?"
+  "SELECT id, child_id, app_id, start_time, end_time, covered_minutes, rejected_minutes, cutoff_time, remaining_balance FROM usage_sessions WHERE id = ?"
 );
 
 const insertUsageSession = db.prepare(`
@@ -45,9 +49,22 @@ const insertUsageSession = db.prepare(`
     received_at,
     covered_minutes,
     rejected_minutes,
+    remaining_balance,
     cutoff_time
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
+
+function isSameUsageSession(
+  existingSession: UsageSessionRow,
+  input: ReportUsageSessionInput
+): boolean {
+  return (
+    existingSession.child_id === input.childId &&
+    existingSession.app_id === input.appId &&
+    existingSession.start_time === input.startTime &&
+    existingSession.end_time === input.endTime
+  );
+}
 
 function reportUsageSessionInCurrentTransaction(
   input: ReportUsageSessionInput
@@ -100,8 +117,8 @@ function reportUsageSessionInCurrentTransaction(
     | undefined;
 
   if (existingSession) {
-    if (existingSession.child_id !== input.childId) {
-      throw new Error("Usage session already exists for a different child");
+    if (!isSameUsageSession(existingSession, input)) {
+      throw new Error("Usage session already exists with different details");
     }
 
     return {
@@ -109,7 +126,7 @@ function reportUsageSessionInCurrentTransaction(
       coveredMinutes: existingSession.covered_minutes,
       rejectedMinutes: existingSession.rejected_minutes,
       cutoffTime: existingSession.cutoff_time,
-      remainingBalance: child.balance,
+      remainingBalance: existingSession.remaining_balance ?? child.balance,
     };
   }
 
@@ -130,6 +147,7 @@ function reportUsageSessionInCurrentTransaction(
           referenceId: input.id,
         })
       : null;
+  const remainingBalance = ledgerEntry?.balanceAfter ?? child.balance;
 
   insertUsageSession.run(
     input.id,
@@ -140,6 +158,7 @@ function reportUsageSessionInCurrentTransaction(
     receivedAt,
     coveredMinutes,
     rejectedMinutes,
+    remainingBalance,
     cutoffTime
   );
 
@@ -148,7 +167,7 @@ function reportUsageSessionInCurrentTransaction(
     coveredMinutes,
     rejectedMinutes,
     cutoffTime,
-    remainingBalance: ledgerEntry?.balanceAfter ?? child.balance,
+    remainingBalance,
   };
 }
 

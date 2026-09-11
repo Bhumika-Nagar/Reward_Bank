@@ -49,6 +49,7 @@ db.exec(`
     received_at TEXT NOT NULL,
     covered_minutes INTEGER NOT NULL DEFAULT 0,
     rejected_minutes INTEGER NOT NULL DEFAULT 0,
+    remaining_balance INTEGER NOT NULL DEFAULT 0,
     cutoff_time TEXT,
 
     FOREIGN KEY (child_id) REFERENCES children(id)
@@ -65,6 +66,30 @@ db.exec(`
 
     FOREIGN KEY (child_id) REFERENCES children(id)
   );
+`);
+
+const usageColumns = db
+  .prepare("PRAGMA table_info(usage_sessions)")
+  .all() as { name: string }[];
+
+if (!usageColumns.some((column) => column.name === "remaining_balance")) {
+  db.exec("ALTER TABLE usage_sessions ADD COLUMN remaining_balance INTEGER");
+}
+
+db.exec(`
+  UPDATE usage_sessions
+  SET remaining_balance = COALESCE(
+    (
+      SELECT ledger_entries.balance_after
+      FROM ledger_entries
+      WHERE ledger_entries.reference_id = usage_sessions.id
+        AND ledger_entries.child_id = usage_sessions.child_id
+      ORDER BY ledger_entries.rowid DESC
+      LIMIT 1
+    ),
+    0
+  )
+  WHERE remaining_balance IS NULL;
 `);
 
 export default db;
