@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import app from "../src/app";
 import db from "../src/database";
+import { recordLedgerEntry } from "../src/services/ledgerService";
 
 const PARENT_TOKEN = "parent-00000000-0000-4000-8000-000000000001";
 const CHILD_TOKEN = "child-00000000-0000-4000-8000-000000000001";
@@ -28,7 +29,7 @@ describe("Auth Middleware", () => {
     db.prepare(`
       INSERT INTO children (id, name, token, parent_id, balance, debt)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run("child-1", "Child", CHILD_TOKEN, "parent-1", 10, 0);
+    `).run("child-1", "Child", CHILD_TOKEN, "parent-1", 0, 0);
 
     db.prepare(`
       INSERT INTO parents (id, name, token)
@@ -38,7 +39,21 @@ describe("Auth Middleware", () => {
     db.prepare(`
       INSERT INTO children (id, name, token, parent_id, balance, debt)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run("child-with-parent-token", "Wrong Child", PARENT_TOKEN, "parent-1", 10, 0);
+    `).run("child-with-parent-token", "Wrong Child", PARENT_TOKEN, "parent-1", 0, 0);
+
+    recordLedgerEntry({
+      childId: "child-1",
+      amount: 10,
+      reason: "OPENING_BALANCE",
+      referenceId: "opening-balance-child-1",
+    });
+
+    recordLedgerEntry({
+      childId: "child-with-parent-token",
+      amount: 10,
+      reason: "OPENING_BALANCE",
+      referenceId: "opening-balance-child-with-parent-token",
+    });
 
     server = app.listen(0, "127.0.0.1");
 

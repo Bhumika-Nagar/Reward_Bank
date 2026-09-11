@@ -92,17 +92,17 @@ function reportUsageSessionInCurrentTransaction(
     throw new Error("endTime must be a valid date");
   }
 
-  if (start >= end) {
+  const durationMs = end.getTime() - start.getTime();
+
+  if (durationMs <= 0) {
     throw new Error("startTime must be before endTime");
   }
 
-  const durationMinutes = Math.floor(
-    (end.getTime() - start.getTime()) / 60_000
-  );
-
-  if (durationMinutes <= 0) {
-    throw new Error("usage session must be at least one minute");
+  if (durationMs % 60_000 !== 0) {
+    throw new Error("usage session duration must be a whole number of minutes");
   }
+
+  const durationMinutes = durationMs / 60_000;
 
   const child = getChildBalance.get(input.childId) as
     | ChildBalanceRow

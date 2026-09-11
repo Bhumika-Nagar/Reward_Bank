@@ -9,6 +9,33 @@ import {
 } from "../src/services/taskService";
 import { reportUsageSession } from "../src/services/usageService";
 
+function assertLedgerBalanceInvariant(childId: string): void {
+  const child = db
+    .prepare("SELECT balance FROM children WHERE id = ?")
+    .get(childId) as { balance: number };
+
+  const ledgerTotal = db
+    .prepare(
+      "SELECT COALESCE(SUM(amount), 0) AS total FROM ledger_entries WHERE child_id = ?"
+    )
+    .get(childId) as { total: number };
+
+  const ledgerEntries = db
+    .prepare(
+      "SELECT amount, balance_after FROM ledger_entries WHERE child_id = ? ORDER BY rowid"
+    )
+    .all(childId) as { amount: number; balance_after: number }[];
+
+  let runningBalance = 0;
+
+  for (const entry of ledgerEntries) {
+    runningBalance += entry.amount;
+    expect(entry.balance_after).toBe(runningBalance);
+  }
+
+  expect(ledgerTotal.total).toBe(child.balance);
+}
+
 describe("Task Service", () => {
   beforeEach(() => {
     db.prepare("DELETE FROM ledger_entries").run();
@@ -251,54 +278,76 @@ describe("Task Service", () => {
     ]);
   });
 
-  it("keeps the ledger sum equal to the child balance", () => {
+  it("keeps the ledger balance invariant after every balance-changing operation", () => {
+    assertLedgerBalanceInvariant("child-1");
+
     const firstTask = createTask({
       childId: "child-1",
       title: "Read",
-      reward: 25,
+      reward: 30,
     });
 
     markTaskDone(firstTask.id);
     approveTask(firstTask.id);
+    assertLedgerBalanceInvariant("child-1");
 
     reportUsageSession({
-      id: "usage-ledger-invariant",
+      id: "usage-ledger-invariant-first",
       childId: "child-1",
       appId: "video",
       startTime: "2026-09-10T14:00:00.000Z",
       endTime: "2026-09-10T14:10:00.000Z",
     });
-
-    undoTask(firstTask.id);
+    assertLedgerBalanceInvariant("child-1");
 
     const secondTask = createTask({
       childId: "child-1",
       title: "Homework",
-      reward: 40,
+      reward: 15,
     });
 
     markTaskDone(secondTask.id);
     approveTask(secondTask.id);
+    assertLedgerBalanceInvariant("child-1");
+
+    reportUsageSession({
+      id: "usage-ledger-invariant-over-limit",
+      childId: "child-1",
+      appId: "game",
+      startTime: "2026-09-10T14:20:00.000Z",
+      endTime: "2026-09-10T15:10:00.000Z",
+    });
+    assertLedgerBalanceInvariant("child-1");
+
+    undoTask(secondTask.id);
+    assertLedgerBalanceInvariant("child-1");
+
+    const childAfterUndo = db
+      .prepare("SELECT balance, debt FROM children WHERE id = ?")
+      .get("child-1") as { balance: number; debt: number };
+
+    expect(childAfterUndo).toEqual({
+      balance: 0,
+      debt: 15,
+    });
+
+    const thirdTask = createTask({
+      childId: "child-1",
+      title: "Yard work",
+      reward: 20,
+    });
+
+    markTaskDone(thirdTask.id);
+    approveTask(thirdTask.id);
+    assertLedgerBalanceInvariant("child-1");
 
     const child = db
       .prepare("SELECT balance, debt FROM children WHERE id = ?")
       .get("child-1") as { balance: number; debt: number };
 
-    const ledgerTotal = db
-      .prepare("SELECT SUM(amount) AS total FROM ledger_entries WHERE child_id = ?")
-      .get("child-1") as { total: number };
-    const ledgerDebtTotal = db
-      .prepare("SELECT SUM(debt_change) AS total FROM ledger_entries WHERE child_id = ?")
-      .get("child-1") as { total: number };
-
-    const latestLedgerEntry = db
-      .prepare(
-        "SELECT balance_after FROM ledger_entries WHERE child_id = ? ORDER BY timestamp DESC LIMIT 1"
-      )
-      .get("child-1") as { balance_after: number };
-
-    expect(ledgerTotal.total).toBe(child.balance);
-    expect(ledgerDebtTotal.total).toBe(child.debt);
-    expect(latestLedgerEntry.balance_after).toBe(child.balance);
+    expect(child).toEqual({
+      balance: 5,
+      debt: 0,
+    });
   });
 });

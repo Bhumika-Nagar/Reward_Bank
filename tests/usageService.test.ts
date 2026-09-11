@@ -23,7 +23,14 @@ describe("Usage Service", () => {
     db.prepare(`
       INSERT INTO children (id, name, token, parent_id, balance)
       VALUES (?, ?, ?, ?, ?)
-    `).run("child-1", "Child", "child-00000000-0000-4000-8000-000000000001", "parent-1", 10);
+    `).run("child-1", "Child", "child-00000000-0000-4000-8000-000000000001", "parent-1", 0);
+
+    recordLedgerEntry({
+      childId: "child-1",
+      amount: 10,
+      reason: "OPENING_BALANCE",
+      referenceId: "opening-balance",
+    });
     });
 
   it("covers available minutes and rejects the rest", () => {
@@ -58,6 +65,72 @@ describe("Usage Service", () => {
       debt_change: 0,
       reason: "USAGE",
       });
+  });
+
+  it("accepts an exact whole-minute usage session", () => {
+    const result = reportUsageSession({
+      id: "usage-whole-minute",
+      childId: "child-1",
+      appId: "youtube",
+      startTime: "2026-09-10T10:20:00.000Z",
+      endTime: "2026-09-10T10:21:00.000Z",
+    });
+
+    expect(result).toMatchObject({
+      usageId: "usage-whole-minute",
+      coveredMinutes: 1,
+      rejectedMinutes: 0,
+      cutoffTime: null,
+      remainingBalance: 9,
+    });
+
+    const child = db
+      .prepare("SELECT balance FROM children WHERE id = ?")
+      .get("child-1") as { balance: number };
+
+    expect(child.balance).toBe(9);
+  });
+
+  it("rejects fractional-minute usage without changing balance or ledger", () => {
+    expect(() =>
+      reportUsageSession({
+        id: "usage-fractional",
+        childId: "child-1",
+        appId: "youtube",
+        startTime: "2026-09-10T10:30:00.000Z",
+        endTime: "2026-09-10T10:31:59.000Z",
+      })
+    ).toThrow("usage session duration must be a whole number of minutes");
+
+    expect(() =>
+      reportUsageSession({
+        id: "usage-under-minute",
+        childId: "child-1",
+        appId: "youtube",
+        startTime: "2026-09-10T10:40:00.000Z",
+        endTime: "2026-09-10T10:40:30.000Z",
+      })
+    ).toThrow("usage session duration must be a whole number of minutes");
+
+    const child = db
+      .prepare("SELECT balance FROM children WHERE id = ?")
+      .get("child-1") as { balance: number };
+
+    const usageCount = db
+      .prepare(
+        "SELECT COUNT(*) AS count FROM usage_sessions WHERE id IN (?, ?)"
+      )
+      .get("usage-fractional", "usage-under-minute") as { count: number };
+
+    const ledgerCount = db
+      .prepare(
+        "SELECT COUNT(*) AS count FROM ledger_entries WHERE reference_id IN (?, ?)"
+      )
+      .get("usage-fractional", "usage-under-minute") as { count: number };
+
+    expect(child.balance).toBe(10);
+    expect(usageCount.count).toBe(0);
+    expect(ledgerCount.count).toBe(0);
   });
 
   it("does not charge the same usage session twice", () => {
@@ -260,9 +333,9 @@ describe("Usage Service", () => {
 
     const ledgerEntries = db
       .prepare(
-        "SELECT amount, debt_change, reason, reference_id FROM ledger_entries ORDER BY rowid"
+        "SELECT amount, debt_change, reason, reference_id FROM ledger_entries WHERE reason = ? ORDER BY rowid"
       )
-      .all();
+      .all("USAGE");
 
     expect(ledgerEntries).toEqual([
       {
@@ -348,8 +421,8 @@ describe("Usage Service", () => {
       .get() as { count: number };
 
     const ledgerCount = db
-      .prepare("SELECT COUNT(*) AS count FROM ledger_entries")
-      .get() as { count: number };
+      .prepare("SELECT COUNT(*) AS count FROM ledger_entries WHERE reason = ?")
+      .get("USAGE") as { count: number };
 
     expect(child.balance).toBe(10);
     expect(usageCount.count).toBe(0);
